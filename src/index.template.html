@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🇦🇺⚡️NEM SLD | v%%VERSION%%</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-search@3.0.9/dist/leaflet-search.min.css" />
+    <script src="https://unpkg.com/leaflet-search@3.0.9/dist/leaflet-search.min.js"></script>
+    <style>
+        html, body, #map {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: #f2f2f2;
+            font-family: 'Roboto', sans-serif;
+        }
+    
+    .object-popup .leaflet-popup-content-wrapper {
+        background: white;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    }
+    
+    .object-popup .leaflet-popup-content {
+        margin: 5px 10px;
+        font-size: 12px;
+        font-weight: bold;
+        color: #333;
+        text-align: center;
+    }
+    
+    .object-popup .leaflet-popup-tip {
+        background: transparent;
+    }
+
+    .leaflet-top.leaflet-right {
+        display: grid;
+        grid-template-areas: "search zoom"
+                             ".      zoomfit";
+        grid-template-columns: auto auto;
+        grid-gap: 10px;
+    }
+    .leaflet-top.leaflet-left {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .leaflet-control-search { grid-area: search; align-self: start; }
+    .leaflet-control-zoom { grid-area: zoom; }
+    .zoom-to-fit-control { grid-area: zoomfit; }
+    .title-control {
+        background: white;
+        padding: 5px 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+        text-align: center;
+        width: 190px;
+        box-sizing: border-box;
+    }
+    .title-control b {
+        font-size: 1.2em;
+    }
+    .title-control a {
+        text-decoration: none;
+        font-size: 1.2em;
+        vertical-align: middle;
+    }
+    .title-control hr {
+        margin: 4px 0;
+        border: 0;
+        border-top: 1px solid #ccc;
+    }
+    .help-buttons {
+        width: 150px;
+    }
+    .help-buttons a {
+        font-size: 14px;
+        padding: 3px 8px;
+        display: block;
+        text-align: center;
+    }
+    .help-buttons a:first-child {
+        border-bottom: 1px solid #ddd;
+        border-radius: 4px 4px 0 0;
+    }
+    .help-buttons a:last-child {
+        border-radius: 0 0 4px 4px;
+    }
+    .zoom-to-fit-control a {
+        font-size: 1.5em;
+    }
+    .generator-marker div {
+        background-color: rgba(68, 204, 68, 0.2);
+        border: 1px solid rgba(68, 204, 68, 0.8);
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        box-sizing: border-box;
+    }
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 10000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0,0,0,0.5);
+    }
+    .modal-content {
+        background-color: #fefefe;
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 600px;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
+        position: relative;
+    }
+    .modal-content h2 {
+        text-align: center;
+        margin-top: 0;
+    }
+    .modal-content ul {
+        list-style-type: disc;
+        padding-left: 20px;
+    }
+    .modal-content li {
+        margin-bottom: 10px;
+    }
+    .close-button {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+    .close-button:hover,
+    .close-button:focus {
+        color: black;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .leaflet-control, .leaflet-control-search .search-tooltip {
+        font-family: 'Roboto', sans-serif;
+    }
+
+    @media (max-width: 768px) {
+        .title-control {
+            width: 86px;
+            padding: 3px 5px;
+            font-size: 10px;
+        }
+        .help-buttons {
+            width: 75px;
+        }
+        .help-buttons a {
+            font-size: 8px;
+            padding: 1px 4px;
+        }
+    }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="helpModal" class="modal">
+    <div class="modal-content">
+        <span class="close-button">&times;</span>
+        <h2>Welcome to NEM SLD! 🎉</h2>
+        <ul>
+            <li>This is a geographic schematic of the Australian electrical system (transmission and sub-transmission).</li>
+            <li>The substations are approximately located at their real-world locations (relative to each other) - but lines are not necessarily in the correct location relative to each substation.</li>
+            <li>The layout of switchgear is based on the real-world layout of the substations - but spare bays or the exact location of bays has sometimes been simplified for the diagram.</li>
+            <li>You can click to pan around, scroll in and out or use the search bar (Ctrl+F) to find substations by name.</li>
+            <li>Some generators and assets have additional information available if you hover on them.</li>
+        </ul>
+        
+        <h3>NEM SLD? All I see is Victoria!?</h3>
+        <p><b style="color: red;">This is a work in progress! I've so far only implemented parts of Victoria, with much more to come...</b></p>
+        
+        <h3>Where's the data from?</h3>
+        <p>AEMO used to publish the <a href="https://web.archive.org/web/20220119012004if_/https://aemo.com.au/-/media/files/electricity/nem/planning_and_forecasting/maps/nem-slds.pdf#[{%22num%22%3A91%2C%22gen%22%3A0}%2C{%22name%22%3A%22FitR%22}%2C-7%2C0%2C849%2C1181]" target="_blank">NEM SLDs</a> but these haven't been updated since 2019. <a href="https://openinframap.org/#6.89/-36.804/144.698" target="_blank">Open Infrastructure Map</a> has been used for some geographic data.</p>
+        
+        <h3>Is this free?</h3>
+        <p>Yep, everything is <a href="https://github.com/damienvermeer/opennemsld" target="_blank">available on GitHub here</a>.</p>
+        </ul>
+    </div>
+</div>
+
+<div id="errorModal" class="modal">
+    <div class="modal-content">
+        <span class="close-button">&times;</span>
+        <h2>Notice an error? 🤔</h2>
+        <p>Note - I am still working on migrating the existing AEMO .pdf NEM SLDs into this interactive format!</p>
+        <p>This diagram is community-sourced - please let me know if you have any updates or corrections! You can help by <a href="mailto:updates@nemsld.com">emailing updates@nemsld.com</a> (or <a href="https://github.com/damienvermeer/opennemsld" target="_blank">post an issue on GitHub</a>) with:</p>
+        <ul>
+            <li>Details of any errors, corrections or changes - providing references for these would be helpful to cross-check.</li>
+            <li>Any public information about the layout of switchgear at substations, or new substations (including their location and layout) or new generating systems (once built - not just commited stage).</li>
+            <li>For those who want to get into the details, the codebase and data structure which describes each substation is <a href="https://github.com/damienvermeer/opennemsld" target="_blank">available on GitHub here</a> (and the <a href="https://github.com/damienvermeer/opennemsld/blob/main/docs/language-reference.md" target="_blank">substation language reference</a> has some more information about how to contribute).</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    (function() {
+        const MAP_BOUNDS = [[0, 0], [16000, 16000]];
+        const SVG_CONTENT = `%%SVG_CONTENT%%`;
+        const OBJECT_POPUPS = %%OBJECT_POPUPS%%;
+        const LOCATIONS_DATA = %%LOCATIONS_DATA%%;
+
+        function setupModal(modalId, closeButtonSelector) {
+            const modal = document.getElementById(modalId);
+            const closeButton = modal.querySelector(closeButtonSelector);
+            const open = () => modal.style.display = 'block';
+            const close = () => modal.style.display = 'none';
+            if (closeButton) closeButton.addEventListener('click', close);
+            return { modal, open, close };
+        }
+
+        function initializeModals() {
+            const helpModal = setupModal('helpModal', '.close-button');
+            const errorModal = setupModal('errorModal', '.close-button');
+
+            helpModal.open();
+
+            window.addEventListener('click', (event) => {
+                if (event.target === helpModal.modal) helpModal.close();
+                if (event.target === errorModal.modal) errorModal.close();
+            });
+
+            return { showHelp: helpModal.open, showError: errorModal.open };
+        }
+
+        function initializeMap() {
+            const map = L.map('map', {
+                crs: L.CRS.Simple,
+                minZoom: -5,
+                maxZoom: 2,
+                zoomDelta: 0.02,
+                zoomSnap: 0,
+                zoomControl: false
+            });
+            L.control.zoom({ position: 'topright' }).addTo(map);
+            map.fitBounds(MAP_BOUNDS);
+            return map;
+        }
+
+        function createCustomControls(map, modalActions) {
+            const TitleControl = L.Control.extend({
+                options: { position: 'topleft' },
+                onAdd: function () {
+                    const container = L.DomUtil.create('div', 'leaflet-control title-control');
+                    container.innerHTML = '<b>🇦🇺⚡️NEM SLD</b><hr>Version %%VERSION%% <a href="https://github.com/damienvermeer/opennemsld/releases" target="_blank" title="Changelog">&#x1F517;</a>';
+                    L.DomEvent.disableClickPropagation(container);
+                    return container;
+                }
+            });
+
+            const HelpControl = L.Control.extend({
+                options: { position: 'topleft' },
+                onAdd: function () {
+                    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control help-buttons');
+                    const createButton = (text, title, action) => {
+                        const button = L.DomUtil.create('a', '', container);
+                        button.innerHTML = text;
+                        button.href = '#';
+                        button.title = title;
+                        button.role = 'button';
+                        button.style.width = '89%';
+                        L.DomEvent.on(button, 'click', L.DomEvent.stop)
+                                  .on(button, 'click', action)
+                                  .on(button, 'click', L.DomEvent.preventDefault);
+                    };
+                    createButton('What is this?', 'Help', modalActions.showHelp);
+                    createButton('Notice an error?', 'Report an error', modalActions.showError);
+                    return container;
+                }
+            });
+
+            const ZoomToFitControl = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function (map) {
+                    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control zoom-to-fit-control');
+                    const button = L.DomUtil.create('a', '', container);
+                    button.innerHTML = '&#x26F6;';
+                    button.href = '#';
+                    button.title = 'Zoom to fit';
+                    button.role = 'button';
+                    button.setAttribute('aria-label', 'Zoom to fit');
+                    L.DomEvent.on(button, 'click', L.DomEvent.stop)
+                              .on(button, 'click', () => map.fitBounds(MAP_BOUNDS))
+                              .on(button, 'click', L.DomEvent.preventDefault);
+                    return container;
+                }
+            });
+
+            map.addControl(new TitleControl());
+            map.addControl(new HelpControl());
+            map.addControl(new ZoomToFitControl());
+        }
+
+        function addSvgOverlay(map) {
+            const parser = new DOMParser();
+            const svgDoc = parser.parseFromString(SVG_CONTENT, 'image/svg+xml');
+            const svgElement = svgDoc.documentElement;
+
+            const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+            style.textContent = "@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap'); text { font-family: 'Roboto', sans-serif !important; }";
+            svgElement.prepend(style);
+            
+            L.svgOverlay(svgElement, MAP_BOUNDS).addTo(map);
+        }
+
+        function addObjectPopups(map) {
+            if (!OBJECT_POPUPS || OBJECT_POPUPS.length === 0) return;
+
+            OBJECT_POPUPS.forEach(obj => {
+                const objLatLng = [obj.coords[0], obj.coords[1]];
+                const objMarker = L.marker(objLatLng, {
+                    icon: L.divIcon({
+                        className: 'generator-marker',
+                        html: '<div></div>',
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10]
+                    }),
+                    interactive: true,
+                    opacity: 0.1
+                });
+                
+                objMarker.bindPopup(obj.info, {
+                    closeButton: false,
+                    offset: L.point(0, -3),
+                    className: 'object-popup'
+                }).on('mouseover', function() {
+                    this.openPopup();
+                }).on('mouseout', function() {
+                    this.closePopup();
+                });
+                
+                objMarker.addTo(map);
+            });
+        }
+
+        function setupSearch(map) {
+            const features = LOCATIONS_DATA.map(loc => ({
+                type: "Feature",
+                properties: { title: loc.title },
+                geometry: {
+                    type: "Point",
+                    coordinates: [loc.coords[1], loc.coords[0]]
+                }
+            }));
+
+            const featuresLayer = L.geoJSON(features, {
+                pointToLayer: (feature, latlng) => L.marker(latlng, { opacity: 0, interactive: true })
+            });
+
+            const searchControl = new L.Control.Search({
+                layer: featuresLayer,
+                propertyName: 'title',
+                initial: false,
+                marker: false,
+                markerLocation: false,
+                moveToLocation: (latlng, title, map) => map.flyTo(latlng, 0, { duration: 1 }),
+                textPlaceholder: 'e.g. ARTS',
+                textErr: 'Location not found',
+                title: 'Search Substations',
+                zoom: 4,
+                position: 'topright'
+            });
+            map.addControl(searchControl);
+        }
+
+        function setupKeyboardShortcuts() {
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && document.activeElement === document.querySelector('.search-input')) {
+                    e.preventDefault();
+                    document.querySelector('.search-tooltip a')?.click();
+                } else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
+                    e.preventDefault();
+                    const searchContainer = document.querySelector('.leaflet-control-search');
+                    if (searchContainer && !searchContainer.classList.contains('search-exp')) {
+                        searchContainer.querySelector('.search-button')?.click();
+                    } else {
+                        document.querySelector('.search-input')?.focus();
+                    }
+                }
+            });
+        }
+
+        const modalActions = initializeModals();
+        const map = initializeMap();
+        createCustomControls(map, modalActions);
+        addSvgOverlay(map);
+        addObjectPopups(map);
+        setupSearch(map);
+        setupKeyboardShortcuts();
+    })();
+});
+</script>
+
+</body>
+</html>
