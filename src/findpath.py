@@ -18,6 +18,9 @@ def create_graph_from_grid(grid: List[List[int]]) -> nx.Graph:
     Each grid cell becomes a node, and edges are created between adjacent
     (non-diagonal) cells. The weight of an edge is the average of the
     traversal costs of the two nodes it connects.
+    
+    Vertical edges have 0.5% lower weight than horizontal edges to encourage
+    north-south routing.
 
     Args:
         grid: A 2D list representing the grid. Each cell's value is its
@@ -34,16 +37,18 @@ def create_graph_from_grid(grid: List[List[int]]) -> nx.Graph:
             node_id = (r, c)
             G.add_node(node_id)
 
-            # Add edge to the right neighbor
+            # Add edge to the right neighbor (horizontal edge)
             if c + 1 < cols:
                 right_neighbor_id = (r, c + 1)
                 edge_weight = 1 + (grid[r][c] + grid[r][c + 1]) / 2
                 G.add_edge(node_id, right_neighbor_id, weight=edge_weight)
 
-            # Add edge to the bottom neighbor
+            # Add edge to the bottom neighbor (vertical edge)
             if r + 1 < rows:
                 bottom_neighbor_id = (r + 1, c)
                 edge_weight = 1 + (grid[r][c] + grid[r + 1][c]) / 2
+                # Apply 0.5% reduction to vertical edges
+                edge_weight *= 0.995
                 G.add_edge(node_id, bottom_neighbor_id, weight=edge_weight)
     return G
 
@@ -542,8 +547,8 @@ def run_all_gridsearches(
         penalized by the congestion caused by all other paths.
     3.  **Increasing Penalty**: The penalty for congestion increases
         quadratically with each iteration. It starts very low to allow
-        for more chaotic path exploration and ramps up aggressively towards
-        the end to force convergence on a low-congestion solution.
+        for more chaotic path exploration and ramps up aggressively
+        towards the end to force convergence on a low-congestion solution.
 
     Args:
         path_requests: A list of (start_node, end_node) tuples.
