@@ -24,6 +24,10 @@
             background-color: #f2f2f2;
             font-family: 'Roboto', sans-serif;
         }
+        
+        html.dark-mode, body.dark-mode, html.dark-mode #map, body.dark-mode #map {
+            background-color: #1a1a1a !important;
+        }
     
     .object-popup .leaflet-popup-content-wrapper {
         background: white;
@@ -46,7 +50,8 @@
     .leaflet-top.leaflet-right {
         display: grid;
         grid-template-areas: "search zoom"
-                             ".      zoomfit";
+                             ".      zoomfit"
+                             ".      darkmode";
         grid-template-columns: auto auto;
         grid-gap: 10px;
     }
@@ -99,6 +104,90 @@
     }
     .zoom-to-fit-control a {
         font-size: 1.5em;
+    }
+    .dark-mode-control {
+        grid-area: darkmode;
+        background: white;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    }
+    .dark-mode-control a {
+        display: block;
+        padding: 0px 0px;
+        text-decoration: none;
+        color: #333;
+        font-size: 8px;
+        text-align: center;
+        border-radius: 4px;
+    }
+    .dark-mode-control a:hover {
+        background-color: #f0f0f0;
+    }
+    html.dark-mode, body.dark-mode {
+        background-color: #1a1a1a !important;
+        color: white;
+    }
+    body.dark-mode .leaflet-control {
+        background-color: #333;
+        color: white;
+    }
+    body.dark-mode .title-control {
+        background-color: #333;
+        color: white;
+        border-color: #555;
+    }
+    body.dark-mode .help-buttons a {
+        background-color: #333;
+        color: white;
+        border-color: #555;
+    }
+    body.dark-mode .help-buttons a:hover {
+        background-color: #444;
+    }
+    body.dark-mode .dark-mode-control {
+        background-color: #333;
+        border-color: #555;
+    }
+    body.dark-mode .dark-mode-control a {
+        color: white;
+    }
+    body.dark-mode .dark-mode-control a:hover {
+        background-color: #444;
+    }
+    body.dark-mode .zoom-to-fit-control {
+        background-color: #333;
+        border-color: #555;
+    }
+    body.dark-mode .zoom-to-fit-control a {
+        background-color: #333;
+        color: white;
+        border-color: #555;
+    }
+    body.dark-mode .zoom-to-fit-control a:hover {
+        background-color: #444;
+    }
+    body.dark-mode .leaflet-control-zoom a {
+        background-color: #333;
+        color: white;
+        border-color: #555;
+    }
+    body.dark-mode .leaflet-control-zoom a:hover {
+        background-color: #444;
+    }
+    body.dark-mode .leaflet-control-search {
+        background-color: #333;
+        border-color: #555;
+    }
+    body.dark-mode .search-input {
+        background-color: #444;
+        color: white;
+        border-color: #555;
+    }
+    body.dark-mode .modal-content {
+        background-color: #333;
+        color: white;
+        border-color: #555;
     }
     .generator-marker div {
         background-color: rgba(68, 204, 68, 0.2);
@@ -225,6 +314,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const SVG_CONTENT = `%%SVG_CONTENT%%`;
         const OBJECT_POPUPS = %%OBJECT_POPUPS%%;
         const LOCATIONS_DATA = %%LOCATIONS_DATA%%;
+        
+        let isDarkMode = false;
+        let currentSvgOverlay = null;
 
         function setupModal(modalId, closeButtonSelector) {
             const modal = document.getElementById(modalId);
@@ -312,9 +404,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            const DarkModeControl = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function (map) {
+                    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control dark-mode-control');
+                    const button = L.DomUtil.create('a', '', container);
+                    button.innerHTML = '🌙';
+                    button.href = '#';
+                    button.title = 'Toggle dark mode';
+                    button.role = 'button';
+                    button.setAttribute('aria-label', 'Toggle dark mode');
+                    L.DomEvent.on(button, 'click', L.DomEvent.stop)
+                              .on(button, 'click', toggleDarkMode)
+                              .on(button, 'click', L.DomEvent.preventDefault);
+                    return container;
+                }
+            });
+
             map.addControl(new TitleControl());
             map.addControl(new HelpControl());
             map.addControl(new ZoomToFitControl());
+            map.addControl(new DarkModeControl());
         }
 
         function addSvgOverlay(map) {
@@ -326,7 +436,81 @@ document.addEventListener('DOMContentLoaded', () => {
             style.textContent = "@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap'); text { font-family: 'Roboto', sans-serif !important; }";
             svgElement.prepend(style);
             
-            L.svgOverlay(svgElement, MAP_BOUNDS).addTo(map);
+            // Apply dark mode styling if needed
+            if (isDarkMode) {
+                applyDarkModeToSvg(svgElement);
+            }
+            
+            if (currentSvgOverlay) {
+                map.removeLayer(currentSvgOverlay);
+            }
+            currentSvgOverlay = L.svgOverlay(svgElement, MAP_BOUNDS).addTo(map);
+        }
+
+        function applyDarkModeToSvg(svgElement) {
+            // Change all text elements to white
+            const textElements = svgElement.querySelectorAll('text');
+            textElements.forEach(text => {
+                const currentFill = text.getAttribute('fill');
+                // Only change black text to white, preserve coloured text
+                if (!currentFill || currentFill === 'black') {
+                    text.setAttribute('fill', 'white');
+                }
+            });
+        }
+
+        function removeDarkModeFromSvg(svgElement) {
+            // Restore all text elements to their original colours
+            const textElements = svgElement.querySelectorAll('text');
+            textElements.forEach(text => {
+                const currentFill = text.getAttribute('fill');
+                // Change white text back to black
+                if (currentFill === 'white') {
+                    text.setAttribute('fill', 'black');
+                }
+            });
+        }
+
+        function toggleDarkMode() {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark-mode', isDarkMode);
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            
+            // Update the existing SVG overlay instead of recreating it
+            if (currentSvgOverlay) {
+                const svgElement = currentSvgOverlay.getElement();
+                if (isDarkMode) {
+                    applyDarkModeToSvg(svgElement);
+                } else {
+                    removeDarkModeFromSvg(svgElement);
+                }
+            }
+            
+            // Update the dark mode button text
+            const darkModeButton = document.querySelector('.dark-mode-control a');
+            if (darkModeButton) {
+                darkModeButton.innerHTML = isDarkMode ? '☀️' : '🌙';
+                darkModeButton.title = isDarkMode ? 'Switch to light mode' : 'Toggle dark mode';
+            }
+            
+            // Save preference to localStorage
+            localStorage.setItem('darkMode', isDarkMode);
+        }
+
+        function initializeDarkMode() {
+            // Check for saved dark mode preference
+            const savedDarkMode = localStorage.getItem('darkMode');
+            if (savedDarkMode === 'true') {
+                isDarkMode = true;
+                document.documentElement.classList.add('dark-mode');
+                document.body.classList.add('dark-mode');
+                // Update the dark mode button text
+                const darkModeButton = document.querySelector('.dark-mode-control a');
+                if (darkModeButton) {
+                    darkModeButton.innerHTML = '☀️';
+                    darkModeButton.title = 'Switch to light mode';
+                }
+            }
         }
 
         function addObjectPopups(map) {
@@ -406,6 +590,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        initializeDarkMode();
         const modalActions = initializeModals();
         const map = initializeMap();
         createCustomControls(map, modalActions);

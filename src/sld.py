@@ -784,7 +784,7 @@ def draw_switch(
                 y - params.cb_size / 2,
                 params.cb_size,
                 params.cb_size,
-                fill="white",
+                fill="transparent",
                 stroke=colour,
             )
         )
@@ -1061,7 +1061,7 @@ def _draw_standard_element_symbol(
                 symbol_center_y - params.grid_step / 2,
                 params.grid_step,
                 params.grid_step,
-                fill="white",
+                fill="transparent",
                 stroke=colour,
             )
         )
@@ -1237,7 +1237,7 @@ def draw_busbar_object(
                 y_pos - params.grid_step / 2,
                 params.grid_step,
                 params.grid_step,
-                fill="white",
+                fill="transparent",
                 stroke=colour,
             )
         )
@@ -1900,7 +1900,7 @@ def draw_connections(
         voltage1 = connection_points[0]["voltage"]
         voltage2 = connection_points[1]["voltage"]
         colour = COLOUR_MAP.get(voltage1, "black") if voltage1 == voltage2 else "black"
-        
+
         # Determine line width based on voltage
         base_width = 2
         if voltage1 == voltage2:
@@ -1908,8 +1908,7 @@ def draw_connections(
         else:
             # For mixed voltages, use the higher voltage's scale factor
             scale_factor = max(
-                LINE_WIDTH_SCALE.get(voltage1, 1.0),
-                LINE_WIDTH_SCALE.get(voltage2, 1.0)
+                LINE_WIDTH_SCALE.get(voltage1, 1.0), LINE_WIDTH_SCALE.get(voltage2, 1.0)
             )
         line_width = base_width * scale_factor
 
