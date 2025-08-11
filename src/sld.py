@@ -53,6 +53,20 @@ COLOUR_MAP = {
     500: "#FFDC00",
 }
 
+# Line width scaling factors for different voltage levels
+LINE_WIDTH_SCALE = {
+    11: 1.0,
+    22: 1.0,
+    33: 1.0,
+    66: 1.0,
+    110: 1.15,
+    132: 1.15,
+    220: 1.35,
+    275: 1.35,
+    330: 1.45,
+    500: 1.6,
+}
+
 
 # --- Enums and Dataclasses ---
 @dataclass
@@ -1886,6 +1900,18 @@ def draw_connections(
         voltage1 = connection_points[0]["voltage"]
         voltage2 = connection_points[1]["voltage"]
         colour = COLOUR_MAP.get(voltage1, "black") if voltage1 == voltage2 else "black"
+        
+        # Determine line width based on voltage
+        base_width = 2
+        if voltage1 == voltage2:
+            scale_factor = LINE_WIDTH_SCALE.get(voltage1, 1.0)
+        else:
+            # For mixed voltages, use the higher voltage's scale factor
+            scale_factor = max(
+                LINE_WIDTH_SCALE.get(voltage1, 1.0),
+                LINE_WIDTH_SCALE.get(voltage2, 1.0)
+            )
+        line_width = base_width * scale_factor
 
         start_coord = (
             int(start_coord_px[0] // step),
@@ -1928,7 +1954,7 @@ def draw_connections(
             request["bounds"] = sub_global_bounds[sub1_name]
 
         path_requests.append(request)
-        path_metadata.append({"colour": colour})
+        path_metadata.append({"colour": colour, "line_width": line_width})
 
     print(f"Step 5.1: Finding {len(path_requests)} paths...")
     try:
@@ -1961,6 +1987,7 @@ def draw_connections(
         for i, path in enumerate(all_paths):
             if len(path) > 1:
                 colour = path_metadata[i]["colour"]
+                line_width = path_metadata[i]["line_width"]
                 # The path is returned as (row, col) tuples.
                 # Start the path data string with a "Move to" command.
                 start_node = path[0]
@@ -2007,7 +2034,7 @@ def draw_connections(
                     draw.Path(
                         d=path_data,
                         stroke=colour,
-                        stroke_width=2,
+                        stroke_width=line_width,
                         fill="none",
                     )
                 )
