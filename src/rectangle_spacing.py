@@ -1,5 +1,5 @@
 """
-Bespoke algorithm to space rectangles in 2D space to guarantee no overlap/intersection between them.
+Fast iterative algorithm to space rectangles to guarantee no overlap/intersection between them.
 """
 
 import math
@@ -9,222 +9,270 @@ import matplotlib.patches as patches
 from typing import List, Tuple, Optional
 
 
-def _initialize_positions_and_targets(
+def _get_rectangle_centers(
     rectangles: List[Tuple[float, float, float, float]],
-    grid_size: int,
-    padding_steps: List[int],
-) -> Tuple[
-    List[Tuple[float, float, float, float]],
-    List[Tuple[float, float]],
-    List[float],
-    List[float],
-]:
-    """Snaps initial rectangles to the grid and calculates target dimensions.
+) -> List[Tuple[float, float]]:
+    """Get center points of all rectangles.
+
+    Args:
+        rectangles: List of rectangles (x1, y1, x2, y2).
+
+    Returns:
+        List of center points (x, y).
+    """
+    return [((x1 + x2) / 2, (y1 + y2) / 2) for x1, y1, x2, y2 in rectangles]
+
+
+def _calculate_initial_relationships(
+    rectangles: List[Tuple[float, float, float, float]],
+) -> dict:
+    """Calculate initial relative angles and distances between all rectangle pairs.
 
     Args:
         rectangles: The initial list of rectangles (x1, y1, x2, y2).
-        grid_size: The grid size to snap to.
-        padding_steps: The number of grid steps to use as padding for each rectangle.
 
     Returns:
-        A tuple containing:
-        - current_positions: The grid-snapped initial positions.
-        - shifts: The initial shifts caused by snapping.
-        - target_half_widths: The final target half-widths including padding.
-        - target_half_heights: The final target half-heights including padding.
+        Dictionary mapping (i, j) pairs to (angle, distance) tuples.
     """
-    current_positions = []
-    shifts = []
-    for x1, y1, x2, y2 in rectangles:
-        snapped_x1 = round(x1 / grid_size) * grid_size
-        snapped_y1 = round(y1 / grid_size) * grid_size
-        snapped_x2 = round(x2 / grid_size) * grid_size
-        snapped_y2 = round(y2 / grid_size) * grid_size
-        current_positions.append((snapped_x1, snapped_y1, snapped_x2, snapped_y2))
-        shifts.append((snapped_x1 - x1, snapped_y1 - y1))
+    relationships = {}
+    centers = _get_rectangle_centers(rectangles)
 
-    target_half_widths = []
-    target_half_heights = []
-    for i, (x1, y1, x2, y2) in enumerate(rectangles):
-        padding = padding_steps[i] * grid_size
-        width = abs(x2 - x1)
-        height = abs(y2 - y1)
-        target_half_widths.append(width / 2 + padding)
-        target_half_heights.append(height / 2 + padding)
+    for i in range(len(rectangles)):
+        for j in range(i + 1, len(rectangles)):
+            center_i = centers[i]
+            center_j = centers[j]
 
-    return current_positions, shifts, target_half_widths, target_half_heights
+            dx = center_j[0] - center_i[0]
+            dy = center_j[1] - center_i[1]
+
+            distance = math.sqrt(dx * dx + dy * dy)
+            angle = math.atan2(dy, dx) if distance > 1e-10 else 0
+
+            relationships[(i, j)] = (angle, distance)
+
+    return relationships
 
 
-def _create_grown_polygons(
-    current_positions: List[Tuple[float, float, float, float]],
-    growth_step: int,
+def _calculate_minimum_separation(
+    rect1: Tuple[float, float, float, float],
+    rect2: Tuple[float, float, float, float],
+    padding1: float,
+    padding2: float,
+) -> float:
+    """Calculate minimum required separation between rectangle centers.
+
+    Args:
+        rect1: First rectangle (x1, y1, x2, y2).
+        rect2: Second rectangle (x1, y1, x2, y2).
+        padding1: Padding for first rectangle.
+        padding2: Padding for second rectangle.
+
+    Returns:
+        Minimum distance required between centers.
+    """
+    width1 = abs(rect1[2] - rect1[0])
+    height1 = abs(rect1[3] - rect1[1])
+    width2 = abs(rect2[2] - rect2[0])
+    height2 = abs(rect2[3] - rect2[1])
+
+    # Conservative estimate: half-widths + half-heights + paddings
+    min_separation = (
+        (width1 + width2) / 2 + (height1 + height2) / 2 + padding1 + padding2
+    )
+
+    return min_separation
+
+
+def _check_overlap_simple(
+    rect1: Tuple[float, float, float, float],
+    rect2: Tuple[float, float, float, float],
+    padding1: float,
+    padding2: float,
+) -> bool:
+    """Fast overlap check using bounding boxes with padding.
+
+    Args:
+        rect1: First rectangle (x1, y1, x2, y2).
+        rect2: Second rectangle (x1, y1, x2, y2).
+        padding1: Padding for first rectangle.
+        padding2: Padding for second rectangle.
+
+    Returns:
+        True if rectangles overlap with padding, False otherwise.
+    """
+    x1_1, y1_1, x2_1, y2_1 = rect1
+    x1_2, y1_2, x2_2, y2_2 = rect2
+
+    # Expand rectangles by padding
+    x1_1 -= padding1
+    y1_1 -= padding1
+    x2_1 += padding1
+    y2_1 += padding1
+
+    x1_2 -= padding2
+    y1_2 -= padding2
+    x2_2 += padding2
+    y2_2 += padding2
+
+    # Check for overlap
+    return not (x2_1 <= x1_2 or x2_2 <= x1_1 or y2_1 <= y1_2 or y2_2 <= y1_1)
+
+
+def _separate_overlapping_rectangles(
+    rectangles: List[Tuple[float, float, float, float]],
+    padding_steps: List[int],
     grid_size: int,
-    target_half_widths: List[float],
-    target_half_heights: List[float],
-) -> List[Polygon]:
-    """Creates shapely polygons with sizes corresponding to the current growth step.
-
-    The polygons grow incrementally up to their target size. This allows smaller
-    rectangles to be pushed out of the way by larger ones more naturally.
+) -> List[Tuple[float, float, float, float]]:
+    """Separate overlapping rectangles while maintaining relative angles.
 
     Args:
-        current_positions: The current positions of the rectangles.
-        growth_step: The current step in the growth process.
-        grid_size: The size of the grid.
-        target_half_widths: The final target half-widths for each rectangle.
-        target_half_heights: The final target half-heights for each rectangle.
+        rectangles: List of rectangles (x1, y1, x2, y2).
+        padding_steps: Padding steps for each rectangle.
+        grid_size: Grid size for padding calculations.
 
     Returns:
-        A list of `shapely.geometry.Polygon` objects representing the rectangles
-        at their current size.
+        List of separated rectangles.
     """
-    polygons = []
-    for i, (x1, y1, x2, y2) in enumerate(current_positions):
-        center_x = (x1 + x2) / 2
-        center_y = (y1 + y2) / 2
+    current_rects = [list(rect) for rect in rectangles]  # Make mutable
+    paddings = [steps * grid_size for steps in padding_steps]
 
-        current_growth = (growth_step + 0.5) * grid_size
-        half_width = min(current_growth, target_half_widths[i])
-        half_height = min(current_growth, target_half_heights[i])
+    # Calculate initial relationships to preserve
+    initial_relationships = _calculate_initial_relationships(rectangles)
 
-        poly = Polygon(
-            [
-                (center_x - half_width, center_y - half_height),
-                (center_x + half_width, center_y - half_height),
-                (center_x + half_width, center_y + half_height),
-                (center_x - half_width, center_y + half_height),
-            ]
-        )
-        polygons.append(poly)
-    return polygons
+    max_iterations = 50  # Much lower iteration limit
 
+    for iteration in range(max_iterations):
+        moved_any = False
 
-def _find_conflicts_and_directions(
-    polygons: List[Polygon],
-) -> Tuple[bool, List[bool], List[Optional[float]]]:
-    """Checks all pairs of polygons for conflicts and determines push directions.
+        # Check all pairs for overlaps and angle preservation
+        for i in range(len(current_rects)):
+            for j in range(i + 1, len(current_rects)):
+                rect_i = tuple(current_rects[i])
+                rect_j = tuple(current_rects[j])
 
-    Args:
-        polygons: A list of `shapely.geometry.Polygon` objects to check.
+                # Calculate current centers
+                center_i_x = (rect_i[0] + rect_i[2]) / 2
+                center_i_y = (rect_i[1] + rect_i[3]) / 2
+                center_j_x = (rect_j[0] + rect_j[2]) / 2
+                center_j_y = (rect_j[1] + rect_j[3]) / 2
 
-    Returns:
-        A tuple containing:
-        - conflicts_found: A boolean indicating if any conflicts were detected.
-        - force_to_be_applied: A list of booleans indicating which rectangles
-          should be moved.
-        - directions: A list of angles (in degrees) for the movement.
-    """
-    num_polygons = len(polygons)
-    force_to_be_applied = [False] * num_polygons
-    directions = [None] * num_polygons
-    conflicts_found = False
-
-    for i in range(num_polygons):
-        for j in range(i + 1, num_polygons):
-            poly_i, poly_j = polygons[i], polygons[j]
-
-            # Check if one is wholly inside the other
-            if poly_i.within(poly_j):
-                conflicts_found = True
-                force_to_be_applied[i] = True
-                force_to_be_applied[j] = True
-
-                mid_i = (poly_i.centroid.x, poly_i.centroid.y)
-                mid_j = (poly_j.centroid.x, poly_j.centroid.y)
-
-                if (
-                    abs(mid_i[0] - mid_j[0]) < 1e-6
-                    and abs(mid_i[1] - mid_j[1]) < 1e-6
-                ):
-                    # Same midpoints - move inner rectangle down
-                    force_to_be_applied[j] = False  # Don't move outer rectangle
-                    _apply_direction(directions, i, 270)  # Move inner down
-                else:
-                    # Move away from each other
-                    angle_i_to_j = math.degrees(
-                        math.atan2(mid_j[1] - mid_i[1], mid_j[0] - mid_i[0])
-                    )
-                    angle_j_to_i = (angle_i_to_j + 180) % 360
-                    _apply_direction(directions, i, angle_j_to_i)
-                    _apply_direction(directions, j, angle_i_to_j)
-
-            elif poly_j.within(poly_i):
-                conflicts_found = True
-                force_to_be_applied[i] = True
-                force_to_be_applied[j] = True
-
-                mid_i = (poly_i.centroid.x, poly_i.centroid.y)
-                mid_j = (poly_j.centroid.x, poly_j.centroid.y)
-
-                if (
-                    abs(mid_i[0] - mid_j[0]) < 1e-6
-                    and abs(mid_i[1] - mid_j[1]) < 1e-6
-                ):
-                    # Same midpoints - move inner rectangle down
-                    force_to_be_applied[i] = False  # Don't move outer rectangle
-                    _apply_direction(directions, j, 270)  # Move inner down
-                else:
-                    # Move away from each other
-                    angle_i_to_j = math.degrees(
-                        math.atan2(mid_j[1] - mid_i[1], mid_j[0] - mid_i[0])
-                    )
-                    angle_j_to_i = (angle_i_to_j + 180) % 360
-                    _apply_direction(directions, i, angle_j_to_i)
-                    _apply_direction(directions, j, angle_i_to_j)
-
-            # Check for intersection
-            elif poly_i.intersects(poly_j) and not poly_i.touches(poly_j):
-                conflicts_found = True
-                force_to_be_applied[i] = True
-                force_to_be_applied[j] = True
-
-                mid_i = (poly_i.centroid.x, poly_i.centroid.y)
-                mid_j = (poly_j.centroid.x, poly_j.centroid.y)
-
-                # Move away from each other based on midpoints
-                angle_i_to_j = math.degrees(
-                    math.atan2(mid_j[1] - mid_i[1], mid_j[0] - mid_i[0])
+                # Calculate current distance and angle
+                current_dx = center_j_x - center_i_x
+                current_dy = center_j_y - center_i_y
+                current_distance = math.sqrt(
+                    current_dx * current_dx + current_dy * current_dy
                 )
-                angle_j_to_i = (angle_i_to_j + 180) % 360
-                _apply_direction(directions, i, angle_j_to_i)
-                _apply_direction(directions, j, angle_i_to_j)
 
-    return conflicts_found, force_to_be_applied, directions
+                # Get initial relationship
+                initial_angle, initial_distance = initial_relationships.get(
+                    (i, j), (0, 100)
+                )
+
+                # Calculate minimum required separation
+                min_separation = _calculate_minimum_separation(
+                    rect_i, rect_j, paddings[i], paddings[j]
+                )
+
+                # Determine target distance (larger of initial or minimum required)
+                target_distance = max(initial_distance, min_separation)
+
+                # Check if adjustment is needed
+                needs_adjustment = False
+                if _check_overlap_simple(rect_i, rect_j, paddings[i], paddings[j]):
+                    needs_adjustment = True
+                elif current_distance < min_separation:
+                    needs_adjustment = True
+
+                if needs_adjustment:
+                    moved_any = True
+
+                    if current_distance < 1e-6:
+                        # Same position - use initial angle to separate
+                        target_j_x = center_i_x + target_distance * math.cos(
+                            initial_angle
+                        )
+                        target_j_y = center_i_y + target_distance * math.sin(
+                            initial_angle
+                        )
+
+                        # Move j to target position
+                        width_j = rect_j[2] - rect_j[0]
+                        height_j = rect_j[3] - rect_j[1]
+
+                        current_rects[j][0] = target_j_x - width_j / 2
+                        current_rects[j][1] = target_j_y - height_j / 2
+                        current_rects[j][2] = target_j_x + width_j / 2
+                        current_rects[j][3] = target_j_y + height_j / 2
+                    else:
+                        # Calculate ideal position for j to maintain initial angle
+                        ideal_j_x = center_i_x + target_distance * math.cos(
+                            initial_angle
+                        )
+                        ideal_j_y = center_i_y + target_distance * math.sin(
+                            initial_angle
+                        )
+
+                        # Calculate movement needed
+                        move_j_x = (ideal_j_x - center_j_x) * 0.3  # Damping factor
+                        move_j_y = (ideal_j_y - center_j_y) * 0.3
+
+                        # Also move i slightly in opposite direction for stability
+                        move_i_x = -move_j_x * 0.2
+                        move_i_y = -move_j_y * 0.2
+
+                        # Apply movements
+                        width_i = rect_i[2] - rect_i[0]
+                        height_i = rect_i[3] - rect_i[1]
+                        width_j = rect_j[2] - rect_j[0]
+                        height_j = rect_j[3] - rect_j[1]
+
+                        # Move rectangle i
+                        current_rects[i][0] += move_i_x
+                        current_rects[i][1] += move_i_y
+                        current_rects[i][2] = current_rects[i][0] + width_i
+                        current_rects[i][3] = current_rects[i][1] + height_i
+
+                        # Move rectangle j
+                        current_rects[j][0] += move_j_x
+                        current_rects[j][1] += move_j_y
+                        current_rects[j][2] = current_rects[j][0] + width_j
+                        current_rects[j][3] = current_rects[j][1] + height_j
+
+        if not moved_any:
+            print(f"No overlaps found, converged at iteration {iteration + 1}")
+            break
+
+    return [tuple(rect) for rect in current_rects]
 
 
-def _apply_movements(
+def _snap_to_grid(
     current_positions: List[Tuple[float, float, float, float]],
     original_positions: List[Tuple[float, float, float, float]],
     shifts: List[Tuple[float, float]],
-    force_to_be_applied: List[bool],
-    directions: List[Optional[float]],
     grid_size: int,
 ):
-    """Applies calculated movements to rectangles and updates their total shifts.
+    """Snap all positions to grid and update final shifts.
 
     Args:
         current_positions: The list of current rectangle positions to be modified.
         original_positions: The original, unmodified positions.
         shifts: The list of total shifts to be updated.
-        force_to_be_applied: A list indicating which rectangles to move.
-        directions: A list of angles for the movements.
-        grid_size: The grid size to snap movements to.
+        grid_size: The grid size to snap to.
     """
     for i in range(len(current_positions)):
-        if force_to_be_applied[i] and directions[i] is not None:
-            angle_rad = math.radians(directions[i])
-            dx = grid_size * math.cos(angle_rad)
-            dy = grid_size * math.sin(angle_rad)
+        x1, y1, x2, y2 = current_positions[i]
 
-            x1, y1, x2, y2 = current_positions[i]
-            new_x1 = round((x1 + dx) / grid_size) * grid_size
-            new_y1 = round((y1 + dy) / grid_size) * grid_size
-            new_x2 = round((x2 + dx) / grid_size) * grid_size
-            new_y2 = round((y2 + dy) / grid_size) * grid_size
-            current_positions[i] = (new_x1, new_y1, new_x2, new_y2)
+        # Snap to grid
+        snapped_x1 = round(x1 / grid_size) * grid_size
+        snapped_y1 = round(y1 / grid_size) * grid_size
+        snapped_x2 = round(x2 / grid_size) * grid_size
+        snapped_y2 = round(y2 / grid_size) * grid_size
 
-            orig_x1, orig_y1, _, _ = original_positions[i]
-            shifts[i] = (new_x1 - orig_x1, new_y1 - orig_y1)
+        current_positions[i] = (snapped_x1, snapped_y1, snapped_x2, snapped_y2)
+
+        # Update final shifts
+        orig_x1, orig_y1, _, _ = original_positions[i]
+        shifts[i] = (snapped_x1 - orig_x1, snapped_y1 - orig_y1)
 
 
 def space_rectangles(
@@ -232,15 +280,17 @@ def space_rectangles(
     grid_size: int = 25,
     debug_images: bool = False,
     padding_steps: Optional[List[int]] = None,
+    map_bounds: Tuple[float, float] = (22000, 22000),
 ) -> List[Tuple[float, float]]:
     """
-    Space rectangles to guarantee no overlap/intersection between them.
+    Space rectangles using fast iterative algorithm to guarantee no overlap.
 
     Args:
         rectangles: List of tuples (x1, y1, x2, y2) representing rectangle corners
         grid_size: Grid size for snapping movements (default: 25)
         debug_images: Whether to generate PNG images for each iteration (default: False)
         padding_steps: Number of grid_size steps to add as padding on each side.
+        map_bounds: Tuple of (max_x, max_y) bounds for the map
 
     Returns:
         List of tuples (xshift, yshift) representing how far each rectangle moved
@@ -249,106 +299,51 @@ def space_rectangles(
     if padding_steps is None:
         padding_steps = [1] * len(rectangles)
 
-    (
-        current_positions,
-        shifts,
-        target_half_widths,
-        target_half_heights,
-    ) = _initialize_positions_and_targets(original_positions, grid_size, padding_steps)
+    print("Step 2.3: Using fast iterative algorithm for rectangle spacing...")
 
-    max_target_half_dim = 0
-    if target_half_widths:
-        max_target_half_dim = max(max(target_half_widths), max(target_half_heights))
-
-    num_growth_steps = (
-        math.ceil((max_target_half_dim - grid_size / 2) / grid_size)
-        if grid_size > 0
-        else 0
+    # Separate overlapping rectangles
+    separated_rects = _separate_overlapping_rectangles(
+        rectangles, padding_steps, grid_size
     )
-    num_growth_steps = max(0, num_growth_steps)
 
-    max_iterations = 1000
+    print("Rectangle separation completed")
 
-    for growth_step in range(num_growth_steps + 1):
-        print(
-            f"Step 2.3.{growth_step + 1}: Spacing growth step {growth_step + 1}/{num_growth_steps + 1}..."
-        )
+    # Apply bounds checking to ensure rectangles stay within map bounds
+    max_x, max_y = map_bounds
+    margin = 100  # Small margin from edges
 
-        iteration = 0
-        while iteration < max_iterations:
-            iteration += 1
-            print(f"Step 2.3.{growth_step + 1}.{iteration}: Iteration {iteration}...")
+    for i, (x1, y1, x2, y2) in enumerate(separated_rects):
+        # Check if rectangle is outside bounds
+        if x2 > max_x - margin or y2 > max_y - margin or x1 < margin or y1 < margin:
+            # Calculate rectangle dimensions
+            width = x2 - x1
+            height = y2 - y1
 
-            polygons = _create_grown_polygons(
-                current_positions,
-                growth_step,
-                grid_size,
-                target_half_widths,
-                target_half_heights,
+            # Clamp position to stay within bounds
+            new_x1 = max(margin, min(x1, max_x - margin - width))
+            new_y1 = max(margin, min(y1, max_y - margin - height))
+            new_x2 = new_x1 + width
+            new_y2 = new_y1 + height
+
+            separated_rects[i] = (new_x1, new_y1, new_x2, new_y2)
+            print(
+                f"  Clamped rectangle {i} to bounds: ({new_x1:.1f}, {new_y1:.1f}, {new_x2:.1f}, {new_y2:.1f})"
             )
 
-            (
-                conflicts_found,
-                force_to_be_applied,
-                directions,
-            ) = _find_conflicts_and_directions(polygons)
+    # Calculate shifts
+    shifts = []
+    for i, (orig_rect, new_rect) in enumerate(zip(original_positions, separated_rects)):
+        orig_x1, orig_y1, _, _ = orig_rect
+        new_x1, new_y1, _, _ = new_rect
+        shifts.append((new_x1 - orig_x1, new_y1 - orig_y1))
 
-            if not conflicts_found:
-                break
+    # Snap to grid at the very end
+    _snap_to_grid(separated_rects, original_positions, shifts, grid_size)
 
-            _apply_movements(
-                current_positions,
-                original_positions,
-                shifts,
-                force_to_be_applied,
-                directions,
-                grid_size,
-            )
-
-            if debug_images:
-                rects_for_debug = [p.bounds for p in polygons]
-                _generate_debug_image(rects_for_debug, iteration, growth_step)
+    if debug_images:
+        _generate_debug_image(separated_rects, 1, 0)
 
     return shifts
-
-
-def _apply_direction(
-    directions: List[Optional[float]], index: int, new_angle: float
-) -> None:
-    """Applies a new direction to a rectangle, combining with existing direction.
-
-    If a rectangle is pushed by multiple other rectangles, this function
-    averages the push vectors to get a combined direction.
-
-    Args:
-        directions: The list of current movement directions.
-        index: The index of the rectangle to update.
-        new_angle: The new push angle to apply.
-    """
-    if directions[index] is None:
-        directions[index] = new_angle
-    else:
-        # Convert angles to vectors, add them, then convert back to angle
-        existing_rad = math.radians(directions[index])
-        new_rad = math.radians(new_angle)
-
-        # Convert to unit vectors
-        existing_x = math.cos(existing_rad)
-        existing_y = math.sin(existing_rad)
-        new_x = math.cos(new_rad)
-        new_y = math.sin(new_rad)
-
-        # Add vectors
-        combined_x = existing_x + new_x
-        combined_y = existing_y + new_y
-
-        # Convert back to angle
-        if abs(combined_x) < 1e-10 and abs(combined_y) < 1e-10:
-            # Vectors cancel out, keep existing direction
-            pass
-        else:
-            combined_angle = math.degrees(math.atan2(combined_y, combined_x))
-            directions[index] = combined_angle % 360
 
 
 def _generate_debug_image(

@@ -18,7 +18,7 @@ import findpath
 from rectangle_spacing import space_rectangles
 
 # --- Constants ---
-MAP_DIMS = 16000
+BASE_MAP_DIMS = 22000  # Base dimensions, will be expanded as needed
 BUS_LABEL_FONT_SIZE = 15
 TITLE_MAX_SEARCH_RADIUS_PX = 300
 TITLE_FONT_SIZE = 20
@@ -502,28 +502,22 @@ class Substation:
                 # Store popup info for generator objects with metadata.info
                 if obj.get("metadata", {}).get("info"):
                     # Calculate global coordinates for the popup
-                    global_circle_x = (
-                        self.use_x + circle_center_x * params.grid_step / GRID_STEP
-                    )
-                    global_circle_y = (
-                        self.use_y + circle_center_y * params.grid_step / GRID_STEP
-                    )
+                    # The coordinates are already in the correct local coordinate system
+                    global_circle_x = self.use_x + circle_center_x
+                    global_circle_y = self.use_y + circle_center_y
 
                     info_text = obj["metadata"]["info"]
                     info_text = info_text.replace('"', '\\"')
                     info_text = info_text.replace("\n", "<br>")
 
-                    # Apply y-axis inversion for Leaflet coordinates
-                    leaflet_x = global_circle_x
-                    leaflet_y = MAP_DIMS - global_circle_y
-
+                    # Store coordinates that will be inverted later when we know map_height
                     self.object_popups.append(
                         {
                             "info": info_text,
                             "coords": (
-                                leaflet_y,
-                                leaflet_x,
-                            ),  # Format as [y, x] for Leaflet
+                                global_circle_x,
+                                global_circle_y,
+                            ),  # Store as [x, y] for now, will be inverted in generate_output_files
                         }
                     )
 
@@ -563,6 +557,11 @@ def get_substation_bbox_from_svg(
         A tuple (min_x, min_y, max_x, max_y) representing the
         unrotated bounding box relative to the substation's local origin.
     """
+    # Check if substation has a definition
+    if not substation.definition or substation.definition.strip() == "":
+        print(f"WARNING: {substation.name} has no definition, using default bbox")
+        return -50, -50, 50, 50
+
     # Create a temporary drawing of a fixed large size
     temp_drawing = draw.Drawing(2000, 2000, origin=(0, 0))
 
@@ -603,6 +602,12 @@ def get_substation_bbox_from_svg(
         # Use svgelements to get the bounding box
         svg = svgelements.SVG.parse(temp_svg_path)
         x, y, x_max, y_max = svg.bbox()
+
+        # Check for invalid bounding box
+        if x_max <= x or y_max <= y:
+            print(f"WARNING: {substation.name} has invalid SVG bbox, using default")
+            return -50, -50, 50, 50
+
         width = x_max - x
         height = y_max - y
 
@@ -615,6 +620,11 @@ def get_substation_bbox_from_svg(
 
         return min_x, min_y, max_x, max_y
 
+    except Exception as e:
+        print(
+            f"WARNING: Error parsing SVG for {substation.name}: {e}, using default bbox"
+        )
+        return -50, -50, 50, 50
     finally:
         # Clean up the temporary file
         if os.path.exists(temp_svg_path):
@@ -1742,13 +1752,13 @@ def calculate_initial_scaled_positions(substations: list[Substation]):
     y_range = max_y - min_y
 
     # Determine scaling factor for both dimensions
-    scale_factor_x = MAP_DIMS * 0.9 / x_range if x_range > 0 else 1
-    scale_factor_y = MAP_DIMS * 0.9 / y_range if y_range > 0 else 1
+    scale_factor_x = BASE_MAP_DIMS * 0.9 / x_range if x_range > 0 else 1
+    scale_factor_y = BASE_MAP_DIMS * 0.9 / y_range if y_range > 0 else 1
     scale_factor = min(scale_factor_x, scale_factor_y)
 
-    # Apply scaling and translation to fit within MAP_DIMS
+    # Apply scaling and translation to fit within BASE_MAP_DIMS
     # Use margin of 5% on each side (10% total)
-    margin = MAP_DIMS * 0.05
+    margin = BASE_MAP_DIMS * 0.05
 
     for sub in substations:
         sub.scaled_x = (sub.x - min_x) * scale_factor + margin
@@ -2184,7 +2194,10 @@ def generate_substation_documentation_svgs(
 
 
 def generate_output_files(
-    drawing: draw.Drawing, substations: list[Substation], sub_bboxes: dict
+    drawing: draw.Drawing,
+    substations: list[Substation],
+    sub_bboxes: dict,
+    map_dims: tuple[int, int],
 ):
     """Saves the main SVG and generates the final HTML file.
 
@@ -2196,7 +2209,9 @@ def generate_output_files(
         drawing: The final `draw.Drawing` object.
         substations: The list of all `Substation` objects.
         sub_bboxes: A dictionary of substation bounding boxes.
+        map_dims: A tuple (width, height) of the SVG dimensions.
     """
+    map_width, map_height = map_dims
     # Add Google font embedding for Roboto
     drawing.embed_google_font(
         DEFAULT_FONT_FAMILY, text=None
@@ -2219,7 +2234,7 @@ def generate_output_files(
         global_center_y = sub.use_y + local_center_y
 
         # Invert y-axis for Leaflet coordinates
-        leaflet_y = MAP_DIMS - global_center_y
+        leaflet_y = map_height - global_center_y
         leaflet_x = global_center_x
         locations_data.append(
             f'{{ title: "{title}", coords: [{leaflet_y}, {leaflet_x}] }}'
@@ -2229,8 +2244,14 @@ def generate_output_files(
         # This already contains properly calculated coordinates and formatted info text
         if hasattr(sub, "object_popups") and sub.object_popups:
             for popup in sub.object_popups:
+                # Apply y-axis inversion for Leaflet coordinates
+                # popup["coords"] is stored as (x, y) in global coordinates
+                global_x = popup["coords"][0]
+                global_y = popup["coords"][1]
+                leaflet_y = map_height - global_y
+                leaflet_x = global_x
                 object_popups_data.append(
-                    f'{{ info: "{popup["info"]}", coords: [{popup["coords"][0]}, {popup["coords"][1]}] }}'
+                    f'{{ info: "{popup["info"]}", coords: [{leaflet_y}, {leaflet_x}] }}'
                 )
 
     # Create JSON strings
@@ -2255,6 +2276,8 @@ def generate_output_files(
     html_content = html_content.replace("%%VERSION%%", VERSION)
     html_content = html_content.replace("%%LOCATIONS_DATA%%", locations_json_string)
     html_content = html_content.replace("%%OBJECT_POPUPS%%", object_popups_json_string)
+    html_content = html_content.replace("%%MAP_WIDTH%%", str(map_width))
+    html_content = html_content.replace("%%MAP_HEIGHT%%", str(map_height))
 
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(html_content)
@@ -2301,7 +2324,7 @@ def _handle_cli_args(substation_map: dict[str, Substation]) -> bool:
 
 def _prepare_substation_layout(
     substations: list[Substation], params: DrawingParams
-) -> dict:
+) -> tuple[dict, tuple[int, int]]:
     """Calculates layout, spacing, and final positions for all substations.
 
     This function orchestrates the entire layout process:
@@ -2315,20 +2338,27 @@ def _prepare_substation_layout(
         params: Drawing parameters.
 
     Returns:
-        A dictionary mapping substation names to their calculated unrotated
-        bounding boxes.
+        A tuple containing:
+        - A dictionary mapping substation names to their calculated unrotated bounding boxes.
+        - A tuple (width, height) of the required SVG dimensions.
     """
     calculate_initial_scaled_positions(substations)
 
     print("Step 2.1: Calculating substation bounding boxes...")
     sub_bboxes = {}
     for sub in substations:
-        min_x, min_y, max_x, max_y = get_substation_bbox_from_svg(sub, params)
-        min_x = round(min_x / params.grid_step) * params.grid_step
-        min_y = round(min_y / params.grid_step) * params.grid_step
-        max_x = round(max_x / params.grid_step) * params.grid_step
-        max_y = round(max_y / params.grid_step) * params.grid_step
-        sub_bboxes[sub.name] = (min_x, min_y, max_x, max_y)
+        try:
+            min_x, min_y, max_x, max_y = get_substation_bbox_from_svg(sub, params)
+            min_x = round(min_x / params.grid_step) * params.grid_step
+            min_y = round(min_y / params.grid_step) * params.grid_step
+            max_x = round(max_x / params.grid_step) * params.grid_step
+            max_y = round(max_y / params.grid_step) * params.grid_step
+            sub_bboxes[sub.name] = (min_x, min_y, max_x, max_y)
+            print(f"  {sub.name}: bbox = ({min_x}, {min_y}, {max_x}, {max_y})")
+        except Exception as e:
+            print(f"  ERROR calculating bbox for {sub.name}: {e}")
+            # Use a default bbox if calculation fails
+            sub_bboxes[sub.name] = (-50, -50, 50, 50)
 
     rotated_sub_bboxes = {}
     for sub in substations:
@@ -2338,7 +2368,7 @@ def _prepare_substation_layout(
         )
 
     MIN_PADDING_STEPS = 6
-    PADDING_RATIO = 35
+    PADDING_RATIO = 20
     paddings_in_steps = []
     for sub in substations:
         min_x, min_y, max_x, max_y = rotated_sub_bboxes[sub.name]
@@ -2361,13 +2391,15 @@ def _prepare_substation_layout(
         x2 = sub.scaled_x + width / 2
         y2 = sub.scaled_y + height / 2
         initial_rects.append((x1, y1, x2, y2))
+        print(f"  {sub.name}: initial rect = ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f})")
 
     print("Step 2.3: Spacing rectangles to avoid overlap...")
     shifts = space_rectangles(
         rectangles=initial_rects,
         grid_size=params.grid_step,
-        debug_images=False,
+        debug_images=True,
         padding_steps=paddings_in_steps,
+        map_bounds=(BASE_MAP_DIMS * 2, BASE_MAP_DIMS * 2),  # Allow much larger bounds
     )
 
     print("Step 2.4: Finalizing substation positions...")
@@ -2379,14 +2411,51 @@ def _prepare_substation_layout(
         sub.use_y = (
             round((sub.scaled_y + shift_y) / params.grid_step) * params.grid_step
         )
+        print(
+            f"  {sub.name}: final position = ({sub.use_x:.1f}, {sub.use_y:.1f}), shift = ({shift_x:.1f}, {shift_y:.1f})"
+        )
 
-    return sub_bboxes
+    # Calculate required SVG dimensions based on actual substation positions
+    print("Step 2.5: Calculating required SVG dimensions...")
+    min_x = min_y = float("inf")
+    max_x = max_y = float("-inf")
+
+    for sub in substations:
+        rotated_bbox = get_rotated_bbox(sub_bboxes[sub.name], sub.rotation)
+        bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y = rotated_bbox
+
+        global_min_x = sub.use_x + bbox_min_x
+        global_min_y = sub.use_y + bbox_min_y
+        global_max_x = sub.use_x + bbox_max_x
+        global_max_y = sub.use_y + bbox_max_y
+
+        min_x = min(min_x, global_min_x)
+        min_y = min(min_y, global_min_y)
+        max_x = max(max_x, global_max_x)
+        max_y = max(max_y, global_max_y)
+
+    # Add some padding around the entire layout
+    padding = 500
+    required_width = max(BASE_MAP_DIMS, int(max_x - min_x + 2 * padding))
+    required_height = max(BASE_MAP_DIMS, int(max_y - min_y + 2 * padding))
+
+    # Ensure dimensions are multiples of grid step for clean alignment
+    required_width = ((required_width // params.grid_step) + 1) * params.grid_step
+    required_height = ((required_height // params.grid_step) + 1) * params.grid_step
+
+    print(f"  Required SVG dimensions: {required_width} x {required_height}")
+    print(
+        f"  Substation bounds: ({min_x:.1f}, {min_y:.1f}) to ({max_x:.1f}, {max_y:.1f})"
+    )
+
+    return sub_bboxes, (required_width, required_height)
 
 
 def _populate_pathfinding_grid(
     substations: list[Substation],
     sub_bboxes: dict,
     params: DrawingParams,
+    map_dims: tuple[int, int],
 ) -> tuple[list[list[int]], list[list[tuple[str, str]]], dict]:
     """Populates the grid with weights and boundaries for pathfinding.
 
@@ -2399,6 +2468,7 @@ def _populate_pathfinding_grid(
         substations: The list of all `Substation` objects.
         sub_bboxes: A dictionary of substation bounding boxes.
         params: Drawing parameters.
+        map_dims: A tuple (width, height) of the SVG dimensions.
 
     Returns:
         A tuple containing:
@@ -2407,7 +2477,12 @@ def _populate_pathfinding_grid(
         - sub_global_bounds: A dictionary mapping substation names to their
           global bounding boxes on the grid.
     """
-    num_steps = MAP_DIMS // GRID_STEP + 1
+    map_width, map_height = map_dims
+    num_steps_x = map_width // GRID_STEP + 1
+    num_steps_y = map_height // GRID_STEP + 1
+    num_steps = max(
+        num_steps_x, num_steps_y
+    )  # Use the larger dimension for square grid
     points = [[0 for _ in range(num_steps)] for _ in range(num_steps)]
     grid_owners = [[None for _ in range(num_steps)] for _ in range(num_steps)]
     sub_global_bounds = {}
@@ -2479,7 +2554,7 @@ def main():
 
     # 1. Prepare layout
     print("Step 2: Preparing substation layout...")
-    sub_bboxes = _prepare_substation_layout(substations, params)
+    sub_bboxes, map_dims = _prepare_substation_layout(substations, params)
 
     # 2. Create substation drawing groups
     print("Step 3: Creating substation drawing groups...")
@@ -2492,15 +2567,17 @@ def main():
 
     # 3. Draw substations onto the main canvas
     print("Step 4: Drawing substations on canvas...")
-    drawing = draw.Drawing(MAP_DIMS, MAP_DIMS, origin=(0, 0))
-    drawing.append(draw.Rectangle(0, 0, MAP_DIMS, MAP_DIMS, fill="transparent"))
+    map_width, map_height = map_dims
+    drawing = draw.Drawing(map_width, map_height, origin=(0, 0))
+    drawing.append(draw.Rectangle(0, 0, map_width, map_height, fill="transparent"))
     for sub in substations:
+        print(f"  Drawing {sub.name} at ({sub.use_x}, {sub.use_y})")
         drawing.append(draw.Use(substation_groups[sub.name], sub.use_x, sub.use_y))
 
     # 4. Prepare for and draw connections
     print("Step 5: Preparing and drawing connections...")
     points, grid_owners, sub_global_bounds = _populate_pathfinding_grid(
-        substations, sub_bboxes, params
+        substations, sub_bboxes, params, map_dims
     )
     all_connections = calculate_connection_points(substations, params, sub_bboxes)
     draw_connections(
@@ -2509,7 +2586,7 @@ def main():
 
     # 5. Generate output files
     print("Step 6: Generating output files...")
-    generate_output_files(drawing, substations, sub_bboxes)
+    generate_output_files(drawing, substations, sub_bboxes, map_dims)
 
     print("\nSLD generation complete.")
 
