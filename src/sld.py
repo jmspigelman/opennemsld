@@ -1873,7 +1873,8 @@ def draw_connections(
         sub_global_bounds: A dictionary mapping substation names to their
             global bounding boxes on the grid.
     """
-    num_steps = len(points)
+    num_steps_y = len(points)
+    num_steps_x = len(points[0]) if points else 0
 
     def _distance(a, b) -> float:
         return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
@@ -1922,12 +1923,12 @@ def draw_connections(
         )
 
         start_coord = (
-            max(0, min(start_coord[0], num_steps - 1)),
-            max(0, min(start_coord[1], num_steps - 1)),
+            max(0, min(start_coord[0], num_steps_x - 1)),
+            max(0, min(start_coord[1], num_steps_y - 1)),
         )
         end_coord = (
-            max(0, min(end_coord[0], num_steps - 1)),
-            max(0, min(end_coord[1], num_steps - 1)),
+            max(0, min(end_coord[0], num_steps_x - 1)),
+            max(0, min(end_coord[1], num_steps_y - 1)),
         )
 
         # The pathfinder uses (row, col) which is (y, x). Our coords are (x, y).
@@ -2460,15 +2461,23 @@ def _prepare_substation_layout(
         max_x = max(max_x, global_max_x)
         max_y = max(max_y, global_max_y)
 
-    # Add some padding around the entire layout
-    padding = 500
-    required_width = max(BASE_MAP_DIMS, int(max_x - min_x + 2 * padding))
-    required_height = max(BASE_MAP_DIMS, int(max_y - min_y + 2 * padding))
+    # Add 1000px padding around the entire layout
+    padding = 1000
+
+    # Calculate the actual content dimensions
+    content_width = max_x - min_x
+    content_height = max_y - min_y
+
+    # Calculate required dimensions with padding, ensuring minimum size
+    # Use the actual bounds (max_x, max_y) rather than content dimensions to ensure nothing is cut off
+    required_width = max(BASE_MAP_DIMS, int(max_x + padding))
+    required_height = max(BASE_MAP_DIMS, int(max_y + padding))
 
     # Ensure dimensions are multiples of grid step for clean alignment
     required_width = ((required_width // params.grid_step) + 1) * params.grid_step
     required_height = ((required_height // params.grid_step) + 1) * params.grid_step
 
+    print(f"  Content dimensions: {content_width:.1f} x {content_height:.1f}")
     print(f"  Required SVG dimensions: {required_width} x {required_height}")
     print(
         f"  Substation bounds: ({min_x:.1f}, {min_y:.1f}) to ({max_x:.1f}, {max_y:.1f})"
@@ -2506,11 +2515,9 @@ def _populate_pathfinding_grid(
     map_width, map_height = map_dims
     num_steps_x = map_width // GRID_STEP + 1
     num_steps_y = map_height // GRID_STEP + 1
-    num_steps = max(
-        num_steps_x, num_steps_y
-    )  # Use the larger dimension for square grid
-    points = [[0 for _ in range(num_steps)] for _ in range(num_steps)]
-    grid_owners = [[None for _ in range(num_steps)] for _ in range(num_steps)]
+    # Use actual dimensions instead of forcing square grid
+    points = [[0 for _ in range(num_steps_x)] for _ in range(num_steps_y)]
+    grid_owners = [[None for _ in range(num_steps_x)] for _ in range(num_steps_y)]
     sub_global_bounds = {}
 
     for sub in substations:
@@ -2538,10 +2545,10 @@ def _populate_pathfinding_grid(
         grid_min_x = max(0, int((sub.use_x + rot_min_x - box_margin) / GRID_STEP))
         grid_min_y = max(0, int((sub.use_y + rot_min_y - box_margin) / GRID_STEP))
         grid_max_x = min(
-            num_steps - 1, int((sub.use_x + rot_max_x + box_margin) / GRID_STEP)
+            num_steps_x - 1, int((sub.use_x + rot_max_x + box_margin) / GRID_STEP)
         )
         grid_max_y = min(
-            num_steps - 1, int((sub.use_y + rot_max_y + box_margin) / GRID_STEP)
+            num_steps_y - 1, int((sub.use_y + rot_max_y + box_margin) / GRID_STEP)
         )
         sub_global_bounds[sub.name] = (grid_min_x, grid_min_y, grid_max_x, grid_max_y)
 
@@ -2561,7 +2568,7 @@ def _populate_pathfinding_grid(
             global_y = sub.use_y + (rotated_y + center_y)
             grid_x = int(round(global_x / GRID_STEP))
             grid_y = int(round(global_y / GRID_STEP))
-            if 0 <= grid_y < num_steps and 0 <= grid_x < num_steps:
+            if 0 <= grid_y < num_steps_y and 0 <= grid_x < num_steps_x:
                 points[grid_y][grid_x] = weight
                 grid_owners[grid_y][grid_x] = (sub.name, owner_id)
 
