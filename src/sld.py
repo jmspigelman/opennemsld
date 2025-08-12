@@ -1930,6 +1930,7 @@ def draw_connections(
             all_connection_nodes=all_connection_nodes,
             busbar_weight=BUSBAR_WEIGHT,
             busbar_crossing_penalty=100000,
+            iterations=PATHFINDING_ITERATIONS
         )
 
         # Build a map of nodes to the orientation of paths passing through them.
