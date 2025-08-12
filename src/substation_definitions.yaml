@@ -1929,19 +1929,6 @@ substations:
   #     1: ""
   #   connections:
   #     1: VIC-220-CPTS
-  # - name: Cressy (CRTS)
-  #   lat: -37.999733
-  #   long: 143.752064
-  #   voltage_kv: 220
-  #   tags:
-  #     - CRTS
-  #     - Cressy
-  #   def: |
-  #     1?|
-  #   buses:
-  #     1: ""
-  #   connections:
-  #     1: VIC-220-CRTS
   - name: Dederang (DDTS)
     lat: -36.454286
     long: 146.990814
@@ -2117,19 +2104,6 @@ substations:
   #     1: ""
   #   connections:
   #     1: VIC-220-GETS
-  # - name: Golden Plains (GPTS)
-  #   lat: -37.971694
-  #   long: 143.776722
-  #   voltage_kv: 220
-  #   tags:
-  #     - GPTS
-  #     - Golden Plains
-  #   def: |
-  #     1?|
-  #   buses:
-  #     1: ""
-  #   connections:
-  #     1: VIC-220-GPTS
   # - name: Gnarwarre (GWTS)
   #   lat: -38.146925
   #   long: 144.126603
@@ -3967,28 +3941,28 @@ substations:
       1: VIC-500-CRTS-TX-A2
       2: VIC-500-CRTS-TX-A1
       3: VIC-500-CRTS-MLTS-1
-      6: VIC-500-CRTS-MLTS-2
       4: VIC-500-CRTS-HGTS-1
-      5: VIC-500-CRTS-MOPS-2
+      5: VIC-500-CRTS-MLTS-2
+      6: VIC-500-CRTS-MOPS-2
     objects:
-      - type: tx-ud # A1 tx
+      - type: tx-ud
         metadata:
           w1: 220
           w2: 500
         rel_x: 1
-        rel_y: -3
+        rel_y: -7
         connections:
-          1: VIC-500-CRTS-TX-A1
-          2: VIC-220-CRTS-GPTS-1
-      - type: tx-ud # A2 tx
+          2: VIC-500-CRTS-TX-A2
+          1: VIC-220-CRTS-GPTS-1
+      - type: tx-ud
         metadata:
           w1: 220
           w2: 500
         rel_x: 3
-        rel_y: -6
+        rel_y: -7
         connections:
-          1: VIC-500-CRTS-TX-A2
-          2: VIC-220-CRTS-GPTS-2
+          2: VIC-500-CRTS-TX-A1
+          1: VIC-220-CRTS-GPTS-2
   - name: Golden Plains Terminal Station (GPTS)
     lat: -38 # exact location not known
     long: 143.7777308
@@ -4011,12 +3985,12 @@ substations:
       4: VIC-220-GPTS-TX-W1
       5: VIC-220-CRTS-GPTS-1
     objects:
-      - type: tx-ud 
+      - type: tx-ud
         metadata:
           w1: 33
           w2: 220
         rel_x: 3
-        rel_y: -6
+        rel_y: -7
         connections:
           2: VIC-220-GPTS-TX-W3
       - type: gen
@@ -4027,14 +4001,13 @@ substations:
             Golden Plains Wind Farm (Stage 1)
             122 x 6.2 = 756 MW
         rel_x: 3
-        rel_y: -7
-        connections: {}
-      - type: tx-ud 
+        rel_y: -8
+      - type: tx-ud
         metadata:
           w1: 33
           w2: 220
         rel_x: 5
-        rel_y: -6
+        rel_y: -7
         connections:
           2: VIC-220-GPTS-TX-W2
       - type: gen
@@ -4045,14 +4018,13 @@ substations:
             Golden Plains Wind Farm (Stage 1)
             122 x 6.2 = 756 MW
         rel_x: 5
-        rel_y: -7
-        connections: {}
-      - type: tx-ud 
+        rel_y: -8
+      - type: tx-ud
         metadata:
           w1: 33
           w2: 220
         rel_x: 7
-        rel_y: -6
+        rel_y: -7
         connections:
           2: VIC-220-GPTS-TX-W1
       - type: gen
@@ -4063,5 +4035,4 @@ substations:
             Golden Plains Wind Farm (Stage 1)
             122 x 6.2 = 756 MW
         rel_x: 7
-        rel_y: -7
-        connections: {}
+        rel_y: -8
