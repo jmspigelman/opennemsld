@@ -1850,6 +1850,87 @@ def calculate_connection_points(
     return all_connections
 
 
+def _simple_pathfinding(path_requests: list, points: list[list]) -> list:
+    """Simple breadth-first search pathfinding for debugging.
+    
+    This function uses a basic BFS algorithm that prevents line overlapping
+    but allows lines to cross (share nodes). Lines cannot share edges.
+    Also blocks on elements (high weights) but allows connection points.
+    
+    Args:
+        path_requests: List of pathfinding requests.
+        points: The 2D grid of pathfinding weights.
+        
+    Returns:
+        List of paths, where each path is a list of (row, col) tuples.
+    """
+    from collections import deque
+    
+    # Track used edges to prevent overlapping lines
+    used_edges = set()
+    
+    # Collect all connection points (start/end points) to allow traversal
+    connection_points = set()
+    for request in path_requests:
+        connection_points.add(request["start"])
+        connection_points.add(request["end"])
+    
+    def edge_key(node1, node2):
+        """Create a consistent key for an edge between two nodes."""
+        return tuple(sorted([node1, node2]))
+    
+    def is_blocked(row, col, grid, connection_points):
+        """Check if a grid cell is blocked (high weight element but not a connection point)."""
+        if (row, col) in connection_points:
+            return False  # Connection points are always allowed
+        return grid[row][col] >= ELEMENT_WEIGHT  # Block on elements
+    
+    def bfs_path(start, end, grid, blocked_edges, connection_points):
+        """Basic BFS pathfinding that avoids blocked edges and elements."""
+        rows, cols = len(grid), len(grid[0])
+        queue = deque([(start, [start])])
+        visited = {start}
+        
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # right, down, left, up
+        
+        while queue:
+            (row, col), path = queue.popleft()
+            
+            if (row, col) == end:
+                return path
+                
+            for dr, dc in directions:
+                new_row, new_col = row + dr, col + dc
+                
+                if (0 <= new_row < rows and 0 <= new_col < cols and 
+                    (new_row, new_col) not in visited and
+                    not is_blocked(new_row, new_col, grid, connection_points)):
+                    
+                    # Check if this edge is already used by another line
+                    edge = edge_key((row, col), (new_row, new_col))
+                    if edge not in blocked_edges:
+                        visited.add((new_row, new_col))
+                        queue.append(((new_row, new_col), path + [(new_row, new_col)]))
+        
+        return []  # No path found
+    
+    all_paths = []
+    for request in path_requests:
+        start = request["start"]
+        end = request["end"]
+        path = bfs_path(start, end, points, used_edges, connection_points)
+        
+        # If we found a path, mark all its edges as used
+        if path and len(path) > 1:
+            for i in range(len(path) - 1):
+                edge = edge_key(path[i], path[i + 1])
+                used_edges.add(edge)
+        
+        all_paths.append(path)
+        
+    return all_paths
+
+
 def draw_connections(
     drawing: draw.Drawing,
     all_connections: dict,
@@ -1857,6 +1938,7 @@ def draw_connections(
     grid_owners: list[list],
     step: int,
     sub_global_bounds: dict,
+    use_pretty_pathfinding: bool = True,
 ):
     """Finds paths and draws connections between substations.
 
@@ -1872,6 +1954,7 @@ def draw_connections(
         step: The grid step size.
         sub_global_bounds: A dictionary mapping substation names to their
             global bounding boxes on the grid.
+        use_pretty_pathfinding: Whether to use the complex algorithm or simple BFS.
     """
     num_steps_y = len(points)
     num_steps_x = len(points[0]) if points else 0
@@ -1958,15 +2041,20 @@ def draw_connections(
 
     print(f"Step 5.1: Finding {len(path_requests)} paths...")
     try:
-        all_paths = findpath.run_all_gridsearches(
-            path_requests=path_requests,
-            points=points,
-            grid_owners=grid_owners,
-            congestion_penalty_increment=CONGESTION_PENALTY,
-            all_connection_nodes=all_connection_nodes,
-            busbar_weight=BUSBAR_WEIGHT,
-            busbar_crossing_penalty=100000,
-        )
+        if use_pretty_pathfinding:
+            print("  Using advanced pathfinding algorithm...")
+            all_paths = findpath.run_all_gridsearches(
+                path_requests=path_requests,
+                points=points,
+                grid_owners=grid_owners,
+                congestion_penalty_increment=CONGESTION_PENALTY,
+                all_connection_nodes=all_connection_nodes,
+                busbar_weight=BUSBAR_WEIGHT,
+                busbar_crossing_penalty=100000,
+            )
+        else:
+            print("  Using simple breadth-first search for debugging...")
+            all_paths = _simple_pathfinding(path_requests, points)
 
         # Build a map of nodes to the orientation of paths passing through them.
         node_orientations = {}
@@ -2313,40 +2401,43 @@ def generate_output_files(
 
 
 # --- Main Execution ---
-def _handle_cli_args(substation_map: dict[str, Substation]) -> bool:
+def _handle_cli_args(substation_map: dict[str, Substation]) -> tuple[bool, bool]:
     """Handles command-line arguments for special modes.
 
-    Checks for arguments like `--docs` or `--single` to run specific
-    generation tasks instead of the full map generation.
+    Checks for arguments like `--docs`, `--single`, or `--pretty` to run specific
+    generation tasks or modify the pathfinding algorithm.
 
     Args:
         substation_map: The dictionary of all loaded substations.
 
     Returns:
-        True if a CLI argument was handled (and the main process should exit),
-        False otherwise.
+        A tuple containing:
+        - True if a CLI argument was handled (and the main process should exit), False otherwise.
+        - True if --pretty mode is enabled, False otherwise.
     """
     import sys
+
+    use_pretty_pathfinding = "--pretty" in sys.argv
 
     if len(sys.argv) > 1:
         if sys.argv[1] == "--docs":
             substations = list(substation_map.values())
             generate_substation_documentation_svgs(substations)
-            return True
+            return True, False
         if sys.argv[1] == "--single":
             if len(sys.argv) < 3:
                 print("Usage: python sld.py --single <substation_name>")
-                return True
+                return True, False
             substation_name = sys.argv[2]
             if substation_name not in substation_map:
                 print(f"Substation '{substation_name}' not found.")
                 print(f"Available substations: {', '.join(substation_map.keys())}")
-                return True
+                return True, False
             substation = substation_map[substation_name]
             filename = f"{substation_name.replace(' ', '_')}_single.svg"
             render_substation_svg(substation, filename=filename)
-            return True
-    return False
+            return True, False
+    return False, use_pretty_pathfinding
 
 
 def _prepare_substation_layout(
@@ -2579,7 +2670,8 @@ def main():
     """Main function to run the SLD generation process."""
     print("Step 1: Loading substation data...")
     substation_map = load_substations_from_yaml(SUBSTATIONS_DATA_FILE)
-    if _handle_cli_args(substation_map):
+    should_exit, use_pretty_pathfinding = _handle_cli_args(substation_map)
+    if should_exit:
         return
 
     params = DrawingParams()
@@ -2614,7 +2706,7 @@ def main():
     )
     all_connections = calculate_connection_points(substations, params, sub_bboxes)
     draw_connections(
-        drawing, all_connections, points, grid_owners, GRID_STEP, sub_global_bounds
+        drawing, all_connections, points, grid_owners, GRID_STEP, sub_global_bounds, use_pretty_pathfinding
     )
 
     # 5. Generate output files
