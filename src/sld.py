@@ -1963,10 +1963,34 @@ def draw_connections(
         return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
     valid_connections = {k: v for k, v in all_connections.items() if len(v) == 2}
-    sorted_connections = sorted(
-        valid_connections.items(),
-        key=lambda item: _distance(item[1][0]["coords"], item[1][1]["coords"]),
-    )
+    
+    # Group connections by substation pairs for adjacent routing
+    substation_pairs = {}
+    for linedef, connection_points in valid_connections.items():
+        sub1_name = connection_points[0]["substation"]
+        sub2_name = connection_points[1]["substation"]
+        # Create a consistent key for the substation pair
+        pair_key = tuple(sorted([sub1_name, sub2_name]))
+        if pair_key not in substation_pairs:
+            substation_pairs[pair_key] = []
+        substation_pairs[pair_key].append((linedef, connection_points))
+    
+    # Sort pairs by shortest distance, then sort connections within each pair
+    sorted_pairs = []
+    for pair_key, connections in substation_pairs.items():
+        # Sort connections within this pair by distance
+        connections.sort(key=lambda item: _distance(item[1][0]["coords"], item[1][1]["coords"]))
+        # Use the shortest connection in the pair for overall sorting
+        min_distance = _distance(connections[0][1][0]["coords"], connections[0][1][1]["coords"])
+        sorted_pairs.append((min_distance, connections))
+    
+    # Sort pairs by their minimum distance
+    sorted_pairs.sort(key=lambda x: x[0])
+    
+    # Flatten back to a sorted list, keeping connections from same pair adjacent
+    sorted_connections = []
+    for _, connections in sorted_pairs:
+        sorted_connections.extend(connections)
 
     path_requests = []
     path_metadata = []
@@ -2036,13 +2060,24 @@ def draw_connections(
         if sub1_name == sub2_name and sub1_name in sub_global_bounds:
             request["bounds"] = sub_global_bounds[sub1_name]
 
+        # Add substation pair information for adjacent routing
+        sub1_name = connection_points[0]["substation"]
+        sub2_name = connection_points[1]["substation"]
+        pair_key = tuple(sorted([sub1_name, sub2_name]))
+        
         path_requests.append(request)
-        path_metadata.append({"colour": colour, "line_width": line_width})
+        path_metadata.append({
+            "colour": colour, 
+            "line_width": line_width,
+            "substation_pair": pair_key
+        })
 
     print(f"Step 5.1: Finding {len(path_requests)} paths...")
     try:
         if use_pretty_pathfinding:
             print("  Using advanced pathfinding algorithm...")
+            # Extract substation pair information for adjacent routing
+            substation_pairs_info = [meta["substation_pair"] for meta in path_metadata]
             all_paths = findpath.run_all_gridsearches(
                 path_requests=path_requests,
                 points=points,
@@ -2051,6 +2086,7 @@ def draw_connections(
                 all_connection_nodes=all_connection_nodes,
                 busbar_weight=BUSBAR_WEIGHT,
                 busbar_crossing_penalty=100000,
+                substation_pairs=substation_pairs_info,
             )
         else:
             print("  Using simple breadth-first search for debugging...")

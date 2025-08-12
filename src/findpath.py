@@ -252,6 +252,10 @@ def _apply_penalties_to_graph(
     current_penalty: float,
     start_node: tuple,
     end_node: tuple,
+    substation_pair: tuple = None,
+    all_paths: list = None,
+    current_path_idx: int = None,
+    substation_pairs: list = None,
 ) -> list:
     """Temporarily adds penalties to graph edges based on usage.
 
@@ -262,12 +266,18 @@ def _apply_penalties_to_graph(
         current_penalty: The scaled penalty value for the current iteration.
         start_node: The start node of the path being rerouted.
         end_node: The end node of the path being rerouted.
+        substation_pair: The substation pair for this path (for adjacent routing).
+        all_paths: All current paths (for adjacent routing calculations).
+        current_path_idx: Index of current path being rerouted.
+        substation_pairs: List of all substation pairs.
 
     Returns:
         A list of (edge, penalty_value) tuples that were applied, so they
         can be reverted later.
     """
     applied_penalties = []
+    
+    # Apply standard congestion penalties
     for edge, count in edge_usage.items():
         penalty = (count**2) * current_penalty
         if graph.has_edge(*edge):
@@ -285,6 +295,32 @@ def _apply_penalties_to_graph(
                 if graph.has_edge(*edge):
                     graph.edges[edge]["weight"] += penalty
                     applied_penalties.append((edge, penalty))
+    
+    # Apply adjacent routing incentives for same substation pairs
+    if (substation_pair and all_paths and current_path_idx is not None and 
+        substation_pairs and len(all_paths) == len(substation_pairs)):
+        
+        # Find other paths from the same substation pair
+        same_pair_paths = []
+        for i, other_pair in enumerate(substation_pairs):
+            if i != current_path_idx and other_pair == substation_pair and all_paths[i]:
+                same_pair_paths.append(all_paths[i])
+        
+        # Apply adjacency bonus (negative penalty) to edges near same-pair paths
+        adjacency_bonus = current_penalty * 0.3  # 30% bonus for being adjacent
+        
+        for same_pair_path in same_pair_paths:
+            for path_node in same_pair_path:
+                # Apply bonus to edges adjacent to this path
+                if graph.has_node(path_node):
+                    for neighbor in graph.neighbors(path_node):
+                        edge = tuple(sorted((path_node, neighbor)))
+                        if graph.has_edge(*edge):
+                            # Apply negative penalty (bonus) to encourage adjacency
+                            bonus = -adjacency_bonus
+                            graph.edges[edge]["weight"] += bonus
+                            applied_penalties.append((edge, bonus))
+    
     return applied_penalties
 
 
@@ -1677,6 +1713,7 @@ def run_all_gridsearches(
     all_connection_nodes: set = None,
     busbar_weight: int = None,
     busbar_crossing_penalty: int = 100000,
+    substation_pairs: List[tuple] = None,
 ) -> List[List[Tuple[int, int]]]:
     """
     Finds paths for a series of requests, aiming to minimize total congestion.
@@ -1692,6 +1729,8 @@ def run_all_gridsearches(
         quadratically with each iteration. It starts very low to allow
         for more chaotic path exploration and ramps up aggressively
         towards the end to force convergence on a low-congestion solution.
+    4.  **Adjacent Routing**: Connections between the same substation pairs
+        are encouraged to route adjacently for cleaner layouts.
 
     Args:
         path_requests: A list of (start_node, end_node) tuples.
@@ -1704,6 +1743,7 @@ def run_all_gridsearches(
         all_connection_nodes: A set of all connection nodes to be avoided.
         busbar_weight: The grid value identifying a busbar.
         busbar_crossing_penalty: The penalty for crossing a busbar incorrectly.
+        substation_pairs: A list of substation pair tuples for adjacent routing.
 
     Returns:
         A list of paths, where each path is a list of coordinates, in the
@@ -1712,12 +1752,41 @@ def run_all_gridsearches(
     print("Step 5.1.1: Creating base pathfinding graph...")
     graph = create_graph_from_grid(points)
 
-    # --- Sort requests to route longest paths first ---
-    indexed_requests = sorted(
-        enumerate(path_requests),
-        key=lambda x: manhattan_distance(x[1]["start"], x[1]["end"]),
-        reverse=True,
-    )
+    # --- Group requests by substation pairs for adjacent routing ---
+    if substation_pairs:
+        pair_groups = {}
+        for i, pair in enumerate(substation_pairs):
+            if pair not in pair_groups:
+                pair_groups[pair] = []
+            pair_groups[pair].append(i)
+        
+        # Sort groups by the shortest path in each group, then sort within groups
+        sorted_group_indices = []
+        for pair, indices in pair_groups.items():
+            # Sort indices within this group by path length
+            group_requests = [(i, path_requests[i]) for i in indices]
+            group_requests.sort(key=lambda x: manhattan_distance(x[1]["start"], x[1]["end"]), reverse=True)
+            
+            # Use shortest path in group for overall group sorting
+            min_distance = min(manhattan_distance(path_requests[i]["start"], path_requests[i]["end"]) for i in indices)
+            sorted_group_indices.append((min_distance, [x[0] for x in group_requests]))
+        
+        # Sort groups by their minimum distance
+        sorted_group_indices.sort(key=lambda x: x[0], reverse=True)
+        
+        # Flatten to get final order
+        indexed_requests = []
+        for _, group_indices in sorted_group_indices:
+            for idx in group_indices:
+                indexed_requests.append((idx, path_requests[idx]))
+    else:
+        # --- Sort requests to route longest paths first ---
+        indexed_requests = sorted(
+            enumerate(path_requests),
+            key=lambda x: manhattan_distance(x[1]["start"], x[1]["end"]),
+            reverse=True,
+        )
+    
     sorted_requests = [req for i, req in indexed_requests]
 
     print("Step 5.1.2: Performing initial routing...")
@@ -1753,8 +1822,13 @@ def run_all_gridsearches(
                 edge_usage[edge] = edge_usage.get(edge, 0) + penalty
 
             # --- Apply Penalties and Blockers ---
+            current_substation_pair = substation_pairs[req_idx] if substation_pairs else None
             applied_penalties = _apply_penalties_to_graph(
-                graph, edge_usage, node_usage, current_penalty, start_node, end_node
+                graph, edge_usage, node_usage, current_penalty, start_node, end_node,
+                substation_pair=current_substation_pair,
+                all_paths=all_paths,
+                current_path_idx=req_idx,
+                substation_pairs=substation_pairs
             )
             blocked_edges = _block_connection_nodes(
                 graph, all_connection_nodes, start_node, end_node
