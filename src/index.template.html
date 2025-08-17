@@ -634,7 +634,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         contextPath.style.top = `${e.clientY}px`;
                         contextPath.innerHTML = `
                             <p style="margin: 4px;"><b>CONNECTION NAME: </b>${elem.dataset.connectionName}</p>
-                            <p style="margin: 4px;"><b>SUBSTATIONS: </b>${elem.dataset.substationPair}</p>
+                            <p style="margin: 4px;"><b>SUBSTATION(S): </b>${elem.dataset.substationPair}</p>
                             <p style="margin: 4px;"><b>VOLTAGE: </b>${elem.dataset.voltage}kV</p>
                         `
                         elem.previousElementSibling.setAttribute('opacity', HOVER_HIGHLIGHT_PATH_OPACITY) // Set opacity of highlight path

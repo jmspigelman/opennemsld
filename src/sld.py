@@ -2436,7 +2436,7 @@ def draw_connections(
                 connection_name = path_metadata[i]['connection_name']
                 connection_voltage = path_metadata[i]['voltage']
                 connection_ss_pair = path_metadata[i]['substation_pair']
-                connection_ss_pair = " -> ".join(connection_ss_pair) if connection_ss_pair[0]!=connection_ss_pair[1] else connection_ss_pair[0]
+                connection_ss_pair = " &#8596; ".join(set(connection_ss_pair))
                 drawing.append(
                     draw.Group(
                         [
