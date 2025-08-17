@@ -2431,7 +2431,6 @@ def draw_connections(
                 path = draw.Path(
                         d=path_data,
                         fill="none",
-                        style="pointer-events: auto", 
                     )
                 
                 connection_name = path_metadata[i]['connection_name']
@@ -2451,7 +2450,6 @@ def draw_connections(
                                 stroke=colour,
                                 stroke_width=HOVER_HIGHLIGHT_PATH_HIT_WIDTH, 
                                 opacity=0, 
-                                style="cursor: pointer;",
                                 data_connection_name=connection_name,
                                 data_substation_pair=connection_ss_pair,
                                 data_voltage=connection_voltage,
